@@ -105,3 +105,15 @@ export const syncLogs = sqliteTable("sync_logs", {
 }, (table) => [
   index("idx_sync_logs_shop_created").on(table.shopId, table.createdAt),
 ]);
+
+// ─── Setup Tokens (one-time customer setup links) ───────────────
+export const setupTokens = sqliteTable("setup_tokens", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  token: text("token").notNull().unique(),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  shopName: text("shop_name").notNull(), // pre-filled by admin
+  used: integer("used", { mode: "boolean" }).notNull().default(false),
+  shopId: integer("shop_id"), // filled after customer completes setup
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull().default(sql`(CURRENT_TIMESTAMP)`),
+});

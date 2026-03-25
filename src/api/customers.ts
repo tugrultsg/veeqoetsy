@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { Env } from "../env";
 import { getDb } from "../db/client";
-import { customers, shops } from "../db/schema";
+import { customers, shops, setupTokens } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { encrypt, decrypt } from "../lib/crypto";
 import { VeeqoClient } from "../services/veeqo-client";
@@ -61,6 +61,50 @@ customerRoutes.put("/:id", async (c) => {
   const updated = await db.select().from(customers).where(eq(customers.id, id)).get();
 
   return c.json(updated);
+});
+
+// Generate setup link for customer
+customerRoutes.post("/:id/setup-link", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = parseInt(c.req.param("id"));
+  const body = await c.req.json<{ shopName: string }>();
+
+  const customer = await db.select().from(customers).where(eq(customers.id, id)).get();
+  if (!customer) return c.json({ error: "Customer not found" }, 404);
+
+  // Generate random token
+  const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = Array.from(tokenBytes)
+    .map((b) => b.toString(36).padStart(2, "0"))
+    .join("")
+    .substring(0, 48);
+
+  // Expires in 24 hours
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  await db.insert(setupTokens).values({
+    token,
+    customerId: id,
+    shopName: body.shopName,
+    expiresAt,
+  });
+
+  const setupUrl = `${c.env.WORKER_URL}/setup/${token}`;
+  return c.json({ url: setupUrl, token, expiresAt });
+});
+
+// List setup links for customer
+customerRoutes.get("/:id/setup-links", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = parseInt(c.req.param("id"));
+
+  const tokens = await db
+    .select()
+    .from(setupTokens)
+    .where(eq(setupTokens.customerId, id))
+    .all();
+
+  return c.json(tokens);
 });
 
 // Soft-delete customer

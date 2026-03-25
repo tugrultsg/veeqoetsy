@@ -49,6 +49,15 @@ export const api = {
       `/oauth/etsy/start?customerId=${customerId}&etsyApiKey=${encodeURIComponent(etsyApiKey)}&shopName=${encodeURIComponent(shopName)}`
     ),
 
+  // Setup links
+  generateSetupLink: (customerId: number, shopName: string) =>
+    request<{ url: string; token: string; expiresAt: string }>(
+      `/customers/${customerId}/setup-link`,
+      { method: "POST", body: JSON.stringify({ shopName }) }
+    ),
+  getSetupLinks: (customerId: number) =>
+    request<any[]>(`/customers/${customerId}/setup-links`),
+
   // Veeqo proxy (for setup)
   getVeeqoChannels: (apiKey: string) =>
     request<any[]>(`/veeqo/channels?apiKey=${encodeURIComponent(apiKey)}`),

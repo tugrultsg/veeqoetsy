@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 
-type Step = "customer" | "etsy" | "veeqo-config" | "done";
+type Step = "customer" | "method" | "setup-link" | "veeqo-config" | "done";
 
 export function AddShop() {
   const navigate = useNavigate();
@@ -17,12 +17,12 @@ export function AddShop() {
   const [veeqoApiKey, setVeeqoApiKey] = useState("");
   const [isNewCustomer, setIsNewCustomer] = useState(true);
 
-  // Etsy step
+  // Setup link
   const [shopName, setShopName] = useState("");
-  const [etsyApiKey, setEtsyApiKey] = useState("");
-  const [connectedShopId, setConnectedShopId] = useState<number | null>(null);
+  const [setupUrl, setSetupUrl] = useState("");
+  const [copied, setCopied] = useState(false);
 
-  // Veeqo config step
+  // Veeqo config (for after customer connects)
   const [channels, setChannels] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [deliveryMethods, setDeliveryMethods] = useState<any[]>([]);
@@ -42,30 +42,27 @@ export function AddShop() {
       if (isNewCustomer) {
         if (!newCustomerName || !veeqoApiKey) {
           setError("Name and Veeqo API key required");
+          setLoading(false);
           return;
         }
         const customer = await api.createCustomer(newCustomerName, veeqoApiKey);
         setSelectedCustomerId(customer.id);
-      }
-      if (!selectedCustomerId && !isNewCustomer) {
-        setError("Select a customer");
-        return;
-      }
 
-      // Load Veeqo config for later
-      const key = isNewCustomer ? veeqoApiKey : "";
-      if (key) {
+        // Load Veeqo config
         const [ch, wh, dm] = await Promise.all([
-          api.getVeeqoChannels(key),
-          api.getVeeqoWarehouses(key),
-          api.getVeeqoDeliveryMethods(key),
+          api.getVeeqoChannels(veeqoApiKey),
+          api.getVeeqoWarehouses(veeqoApiKey),
+          api.getVeeqoDeliveryMethods(veeqoApiKey),
         ]);
         setChannels(ch);
         setWarehouses(wh);
         setDeliveryMethods(dm);
+      } else if (!selectedCustomerId) {
+        setError("Select a customer");
+        setLoading(false);
+        return;
       }
-
-      setStep("etsy");
+      setStep("method");
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -73,54 +70,42 @@ export function AddShop() {
     }
   };
 
-  // Step 2: Etsy OAuth
-  const handleEtsyConnect = async () => {
+  // Generate setup link
+  const handleGenerateLink = async () => {
     setError("");
-    if (!shopName || !etsyApiKey) {
-      setError("Shop name and Etsy API key required");
+    if (!shopName) {
+      setError("Shop name required");
       return;
     }
-
+    setLoading(true);
     try {
-      const { authUrl } = await api.startEtsyOAuth(
-        selectedCustomerId!,
-        etsyApiKey,
-        shopName
-      );
-
-      // Open popup
-      const popup = window.open(authUrl, "etsy-oauth", "width=600,height=700");
-
-      // Listen for callback message
-      const handler = (event: MessageEvent) => {
-        if (event.data?.success && event.data?.shopId) {
-          setConnectedShopId(event.data.shopId);
-          setStep("veeqo-config");
-          window.removeEventListener("message", handler);
-        } else if (event.data?.error) {
-          setError(event.data.error);
-          window.removeEventListener("message", handler);
-        }
-      };
-      window.addEventListener("message", handler);
+      const result = await api.generateSetupLink(selectedCustomerId!, shopName);
+      setSetupUrl(result.url);
+      setStep("setup-link");
     } catch (e: any) {
       setError(e.message);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Step 3: Veeqo config
-  const handleConfigSubmit = async () => {
+  const copyLink = () => {
+    navigator.clipboard.writeText(setupUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Veeqo config (after customer has connected via setup link)
+  const handleConfigSubmit = async (shopId: number) => {
     setError("");
     setLoading(true);
     try {
-      await api.updateShopConfig(connectedShopId!, {
+      await api.updateShopConfig(shopId, {
         veeqoChannelId: channelId,
         veeqoWarehouseId: warehouseId,
         veeqoDeliveryMethodId: deliveryMethodId,
       });
-
-      // Build SKU map
-      await api.buildMap(connectedShopId!);
+      await api.buildMap(shopId);
       setStep("done");
     } catch (e: any) {
       setError(e.message);
@@ -134,9 +119,7 @@ export function AddShop() {
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Add Shop</h1>
 
       {error && (
-        <div className="bg-red-50 text-red-700 p-3 rounded-lg mb-4 text-sm">
-          {error}
-        </div>
+        <div className="bg-red-50 text-red-700 p-3 rounded-lg mb-4 text-sm">{error}</div>
       )}
 
       {/* Step 1: Customer */}
@@ -185,9 +168,7 @@ export function AddShop() {
             >
               <option value="">Select customer...</option>
               {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
           )}
@@ -202,89 +183,62 @@ export function AddShop() {
         </div>
       )}
 
-      {/* Step 2: Etsy */}
-      {step === "etsy" && (
+      {/* Step 2: Choose method */}
+      {step === "method" && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h2 className="font-semibold mb-4">Step 2: Connect Etsy Shop</h2>
+
           <input
-            placeholder="Shop display name"
+            placeholder="Etsy shop display name"
             value={shopName}
             onChange={(e) => setShopName(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg mb-3"
+            className="w-full px-3 py-2 border rounded-lg mb-4"
           />
-          <input
-            placeholder="Etsy API Key (keystring)"
-            value={etsyApiKey}
-            onChange={(e) => setEtsyApiKey(e.target.value)}
-            className="w-full px-3 py-2 border rounded-lg mb-3"
-            type="password"
-          />
+
           <button
-            onClick={handleEtsyConnect}
-            className="w-full bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600"
+            onClick={handleGenerateLink}
+            disabled={loading || !shopName}
+            className="w-full bg-orange-500 text-white py-2 rounded-lg hover:bg-orange-600 disabled:opacity-50 mb-3"
           >
-            Connect Etsy
+            {loading ? "Generating..." : "Generate Setup Link for Customer"}
           </button>
-          <p className="text-xs text-gray-500 mt-2">
-            A popup will open. The customer must authorize the app on Etsy.
+          <p className="text-xs text-gray-500">
+            Creates a one-time link (24h valid). Send it to the customer - they'll connect their Etsy shop from their own computer.
           </p>
         </div>
       )}
 
-      {/* Step 3: Veeqo Config */}
-      {step === "veeqo-config" && (
+      {/* Step 3: Setup link generated */}
+      {step === "setup-link" && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="font-semibold mb-4">Step 3: Veeqo Configuration</h2>
+          <h2 className="font-semibold mb-4">Setup Link Ready</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Send this link to the customer. They'll create an Etsy app and authorize it from their own computer. The link expires in 24 hours.
+          </p>
 
-          <label className="block text-sm text-gray-600 mb-1">Channel</label>
-          <select
-            value={channelId}
-            onChange={(e) => setChannelId(parseInt(e.target.value))}
-            className="w-full px-3 py-2 border rounded-lg mb-3"
-          >
-            <option value={0}>Select channel...</option>
-            {channels.map((ch: any) => (
-              <option key={ch.id} value={ch.id}>
-                {ch.name}
-              </option>
-            ))}
-          </select>
-
-          <label className="block text-sm text-gray-600 mb-1">Warehouse</label>
-          <select
-            value={warehouseId}
-            onChange={(e) => setWarehouseId(parseInt(e.target.value))}
-            className="w-full px-3 py-2 border rounded-lg mb-3"
-          >
-            <option value={0}>Select warehouse...</option>
-            {warehouses.map((wh: any) => (
-              <option key={wh.id} value={wh.id}>
-                {wh.name}
-              </option>
-            ))}
-          </select>
-
-          <label className="block text-sm text-gray-600 mb-1">Delivery Method</label>
-          <select
-            value={deliveryMethodId}
-            onChange={(e) => setDeliveryMethodId(parseInt(e.target.value))}
-            className="w-full px-3 py-2 border rounded-lg mb-3"
-          >
-            <option value={0}>Select delivery method...</option>
-            {deliveryMethods.map((dm: any) => (
-              <option key={dm.id} value={dm.id}>
-                {dm.name}
-              </option>
-            ))}
-          </select>
+          <div className="bg-gray-50 p-3 rounded-lg mb-4 break-all font-mono text-sm">
+            {setupUrl}
+          </div>
 
           <button
-            onClick={handleConfigSubmit}
-            disabled={loading || !channelId || !warehouseId || !deliveryMethodId}
-            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            onClick={copyLink}
+            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 mb-3"
           >
-            {loading ? "Saving & Building SKU Map..." : "Save & Build SKU Map"}
+            {copied ? "Copied!" : "Copy Link"}
           </button>
+
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-semibold text-sm mb-2">After the customer connects:</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Come back here and configure the Veeqo settings (channel, warehouse, delivery method) for this shop.
+            </p>
+            <button
+              onClick={() => navigate("/")}
+              className="w-full bg-gray-100 text-gray-700 py-2 rounded-lg hover:bg-gray-200"
+            >
+              Go to Dashboard
+            </button>
+          </div>
         </div>
       )}
 

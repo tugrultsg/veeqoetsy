@@ -8,7 +8,7 @@ import {
   saveTokens,
 } from "../auth/etsy-oauth";
 import { getDb } from "../db/client";
-import { shops, customers } from "../db/schema";
+import { shops, customers, setupTokens } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { encrypt } from "../lib/crypto";
 
@@ -75,7 +75,7 @@ oauthRoutes.get("/etsy/callback", async (c) => {
   // Delete state (one-time use)
   await c.env.OAUTH_STATE.delete(`oauth:${state}`);
 
-  const { customerId, etsyApiKey, shopName, verifier } = JSON.parse(stored);
+  const { customerId, etsyApiKey, shopName, verifier, setupToken } = JSON.parse(stored);
   const redirectUri = `${c.env.WORKER_URL}/api/oauth/etsy/callback`;
 
   try {
@@ -130,28 +130,42 @@ oauthRoutes.get("/etsy/callback", async (c) => {
     // Save encrypted tokens
     await saveTokens(db, shop.id, tokenData, c.env.ENCRYPTION_KEY);
 
-    return c.html(callbackPage(true, undefined, shop.id));
+    // Mark setup token as used (if this came from a setup link)
+    if (setupToken) {
+      await db
+        .update(setupTokens)
+        .set({ used: true, shopId: shop.id })
+        .where(eq(setupTokens.token, setupToken));
+    }
+
+    return c.html(callbackPage(true, undefined, shop.id, !!setupToken));
   } catch (e: any) {
     console.error("OAuth callback error:", e);
     return c.html(callbackPage(false, e.message || "Unknown error"));
   }
 });
 
-function callbackPage(success: boolean, error?: string, shopId?: number): string {
+function callbackPage(success: boolean, error?: string, shopId?: number, fromSetup?: boolean): string {
   const message = success
     ? "Etsy connected successfully!"
     : `Connection failed: ${error}`;
+
+  const subMessage = success
+    ? fromSetup
+      ? "Your Etsy shop is now connected. You can close this page."
+      : "You can close this window."
+    : "Please close this window and try again.";
 
   return `<!DOCTYPE html>
 <html><head><title>Etsy-Veeqo Auth</title></head>
 <body style="font-family:sans-serif;text-align:center;padding:60px;">
 <h2>${message}</h2>
-<p>${success ? "You can close this window." : "Please close this window and try again."}</p>
+<p>${subMessage}</p>
 <script>
   if (window.opener) {
     window.opener.postMessage(${JSON.stringify({ success, error, shopId })}, "*");
+    setTimeout(() => window.close(), 2000);
   }
-  setTimeout(() => window.close(), 2000);
 </script>
 </body></html>`;
 }
