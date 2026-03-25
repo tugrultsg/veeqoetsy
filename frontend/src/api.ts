@@ -9,11 +9,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     },
   });
 
-  if (resp.status === 401) {
-    window.location.href = "/login";
-    throw new Error("Unauthorized");
-  }
-
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({}));
     throw new Error((data as any).error || `Request failed: ${resp.status}`);
@@ -23,12 +18,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  // Auth
-  login: (password: string) =>
-    request("/auth/login", { method: "POST", body: JSON.stringify({ password }) }),
-  logout: () => request("/auth/logout", { method: "POST" }),
-  checkAuth: () => request<{ authenticated: boolean }>("/auth/check"),
-
   // Dashboard
   getDashboard: () => request<any>("/dashboard"),
 
