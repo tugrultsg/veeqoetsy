@@ -1,0 +1,28 @@
+name = "etsy-veeqo-sync"
+main = "src/index.ts"
+compatibility_date = "2025-03-01"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "etsy-veeqo-db"
+database_id = "8055c463-eab5-42c2-be5f-50ece35349c9"
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "OAUTH_STATE"
+id = "c8283f1b12414be9b599b382387069dd"
+
+[triggers]
+crons = [
+  "*/5 * * * *",
+  "*/10 * * * *",
+  "0,30 * * * *"
+]
+
+[vars]
+WORKER_URL = "https://etsy-veeqo-sync.tt-2ec.workers.dev"

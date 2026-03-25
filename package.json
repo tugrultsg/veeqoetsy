@@ -1,0 +1,24 @@
+{
+  "name": "etsy-veeqo-sync",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "npm run build:frontend && wrangler deploy",
+    "build:frontend": "cd frontend && npm run build && cp -r dist ../dist",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply etsy-veeqo-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply etsy-veeqo-db --remote",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.7.0",
+    "drizzle-orm": "^0.39.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250313.0",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.0.0"
+  }
+}
