@@ -1,6 +1,9 @@
 name = "etsy-veeqo-sync"
 main = "src/index.ts"
 compatibility_date = "2025-03-01"
+routes = [
+  { pattern = "sync.automati.org", custom_domain = true }
+]
 
 [assets]
 directory = "./dist"
@@ -25,4 +28,4 @@ crons = [
 ]
 
 [vars]
-WORKER_URL = "https://etsy-veeqo-sync.tt-2ec.workers.dev"
+WORKER_URL = "https://sync.automati.org"
